@@ -83,6 +83,16 @@ public static class ArkServerLaunchCommand
         builder.Append("?QueryPort=").Append(map.QueryPort);
         builder.Append("?SessionName=").Append(map.SessionName.Trim());
         builder.Append("?AltSaveDirectoryName=").Append(map.AltSaveDirectoryName.Trim());
+        if (map.RconEnabled)
+        {
+            builder.Append("?RCONEnabled=True");
+            builder.Append("?RCONPort=").Append(map.RconPort);
+            if (!string.IsNullOrWhiteSpace(map.AdminPassword))
+            {
+                builder.Append("?ServerAdminPassword=").Append(map.AdminPassword.Trim());
+            }
+        }
+
         builder.Append('?');
         return builder.ToString();
     }
@@ -226,6 +236,20 @@ public static class ArkServerLaunchCommand
             else if (key.Equals("AltSaveDirectoryName", StringComparison.OrdinalIgnoreCase))
             {
                 map.AltSaveDirectoryName = value;
+            }
+            else if (key.Equals("RCONEnabled", StringComparison.OrdinalIgnoreCase))
+            {
+                map.RconEnabled = value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                    || value.Equals("1", StringComparison.OrdinalIgnoreCase)
+                    || value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+            }
+            else if (key.Equals("RCONPort", StringComparison.OrdinalIgnoreCase) && int.TryParse(value, out var rconPort))
+            {
+                map.RconPort = rconPort;
+            }
+            else if (key.Equals("ServerAdminPassword", StringComparison.OrdinalIgnoreCase))
+            {
+                map.AdminPassword = value;
             }
         }
 

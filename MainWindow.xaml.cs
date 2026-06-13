@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -29,10 +30,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly ArkSaveDataService _saveDataService = new();
     private readonly GameServerConfigService _gameConfigService = new();
     private readonly ServerExecutableLocator _serverExecutableLocator = new();
+    private readonly SourceRconClient _rconClient = new();
     private readonly WindowsTitleProbe _titleProbe = new();
     private LauncherSettings _settings;
     private ServerCluster? _editingCluster;
     private ServerMapInstance? _editingMap;
+    private ServerMapInstance? _rconInstance;
     private bool _isAddingMap;
     private bool _startupPromptHandled;
     private bool _suppressPresetChange;
@@ -331,6 +334,133 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         MessageBox.Show(this, command, "Команда запуска", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void OpenRcon_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetInstance(sender, out var instance))
+        {
+            return;
+        }
+
+        if (!EnsureRconReady(instance))
+        {
+            return;
+        }
+
+        _rconInstance = instance;
+        RconMapTitleTextBlock.Text = $"RCON: {instance.DisplayName}";
+        RconEndpointTextBlock.Text = $"127.0.0.1:{instance.RconPort}";
+        RconCommandTextBox.Text = string.Empty;
+        RconOutputTextBox.Text = "RCON готов. Можно отправить команду.";
+        RconCommandOverlay.Visibility = Visibility.Visible;
+        RconCommandTextBox.Focus();
+    }
+
+    private async void SendRconCommand_Click(object sender, RoutedEventArgs e)
+    {
+        await SendRconCommandFromInputAsync();
+    }
+
+    private async void RconSaveWorld_Click(object sender, RoutedEventArgs e)
+    {
+        await SendRconCommandAsync("SaveWorld");
+    }
+
+    private async void RconListPlayers_Click(object sender, RoutedEventArgs e)
+    {
+        await SendRconCommandAsync("ListPlayers");
+    }
+
+    private void RconBroadcast_Click(object sender, RoutedEventArgs e)
+    {
+        if (!RconCommandTextBox.Text.StartsWith("Broadcast ", StringComparison.OrdinalIgnoreCase))
+        {
+            RconCommandTextBox.Text = "Broadcast ";
+            RconCommandTextBox.CaretIndex = RconCommandTextBox.Text.Length;
+        }
+
+        RconCommandTextBox.Focus();
+    }
+
+    private void CancelRcon_Click(object sender, RoutedEventArgs e)
+    {
+        _rconInstance = null;
+        RconCommandOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private async Task SendRconCommandFromInputAsync()
+    {
+        var command = RconCommandTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            ShowValidationError("Введи RCON команду.");
+            return;
+        }
+
+        await SendRconCommandAsync(command);
+    }
+
+    private async Task SendRconCommandAsync(string command)
+    {
+        if (_rconInstance is null)
+        {
+            RconCommandOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (!EnsureRconReady(_rconInstance))
+        {
+            return;
+        }
+
+        RconOutputTextBox.Text = $"Отправляю: {command}";
+
+        try
+        {
+            var response = await _rconClient.SendCommandAsync(
+                "127.0.0.1",
+                _rconInstance.RconPort,
+                _rconInstance.AdminPassword,
+                command);
+
+            RconOutputTextBox.Text = response;
+            DemoStatusText.Text = $"{_rconInstance.DisplayName}: RCON команда отправлена.";
+        }
+        catch (Exception ex) when (ex is SocketException or TimeoutException or IOException or InvalidOperationException or ArgumentException)
+        {
+            RconOutputTextBox.Text = $"RCON не ответил: {ex.Message}";
+            DemoStatusText.Text = $"{_rconInstance.DisplayName}: RCON не ответил.";
+        }
+    }
+
+    private bool EnsureRconReady(ServerMapInstance instance)
+    {
+        if (!instance.IsProcessActive)
+        {
+            ShowValidationError("RCON доступен только когда карта запущена.");
+            return false;
+        }
+
+        if (!instance.RconEnabled)
+        {
+            ShowValidationError("RCON выключен в настройках этой карты. Открой настройки карты, включи RCON, задай порт и ServerAdminPassword, затем перезапусти карту.");
+            return false;
+        }
+
+        if (instance.RconPort is < 1 or > 65535)
+        {
+            ShowValidationError("RCONPort должен быть числом от 1 до 65535.");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(instance.AdminPassword))
+        {
+            ShowValidationError("Для RCON нужен ServerAdminPassword в настройках карты.");
+            return false;
+        }
+
+        return true;
     }
 
     private async void StartCluster_Click(object sender, RoutedEventArgs e)
@@ -782,6 +912,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         MapSaveDirectoryTextBox.Text = instance.AltSaveDirectoryName;
         MapPortTextBox.Text = instance.Port.ToString();
         MapQueryPortTextBox.Text = instance.QueryPort.ToString();
+        MapRconEnabledCheckBox.IsChecked = instance.RconEnabled;
+        MapRconPortTextBox.Text = instance.RconPort.ToString();
+        MapAdminPasswordBox.Password = instance.AdminPassword;
         MapMaxPlayersTextBox.Text = instance.MaxPlayers.ToString();
         MapSettingsOverlay.Visibility = Visibility.Visible;
         MapDisplayNameTextBox.Focus();
@@ -845,7 +978,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         if (HasPortConflict(_editingCluster, _editingMap, mapSettings))
         {
-            ShowValidationError("У другой карты уже используются такие Port или QueryPort. Для отдельных серверов порты должны отличаться.");
+            ShowValidationError("У другой карты уже используется один из этих портов. Port, QueryPort и RCONPort должны отличаться между картами.");
             return;
         }
 
@@ -1455,9 +1588,37 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return false;
         }
 
+        var rconEnabled = MapRconEnabledCheckBox.IsChecked == true;
+        var rconPortText = MapRconPortTextBox.Text.Trim();
+        var rconPort = _editingMap?.RconPort > 0 ? _editingMap.RconPort : 27020;
+        var adminPassword = MapAdminPasswordBox.Password.Trim();
+
+        if ((rconEnabled || !string.IsNullOrWhiteSpace(rconPortText))
+            && !TryReadPort(rconPortText, "RCONPort", out rconPort))
+        {
+            return false;
+        }
+
         if (port == queryPort)
         {
             ShowValidationError("Port и QueryPort должны быть разными.");
+            return false;
+        }
+
+        if (rconEnabled && (rconPort == port || rconPort == queryPort))
+        {
+            ShowValidationError("RCONPort должен отличаться от Port и QueryPort.");
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(adminPassword) && !ValidateLaunchValue(adminPassword, "ServerAdminPassword"))
+        {
+            return false;
+        }
+
+        if (rconEnabled && string.IsNullOrWhiteSpace(adminPassword))
+        {
+            ShowValidationError("Если RCON включен, нужен ServerAdminPassword.");
             return false;
         }
 
@@ -1472,6 +1633,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             AltSaveDirectoryName = saveDirectory,
             Port = port,
             QueryPort = queryPort,
+            RconEnabled = rconEnabled,
+            RconPort = rconPort,
+            AdminPassword = adminPassword,
             MaxPlayers = maxPlayers,
             AccentColor = accent,
             InitialsForeground = foreground
@@ -1558,13 +1722,30 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private static bool HasPortConflict(ServerCluster cluster, ServerMapInstance editedInstance, MapSettings newSettings)
     {
+        var newPorts = GetPorts(newSettings).ToHashSet();
         return cluster.Instances
             .Where(instance => !ReferenceEquals(instance, editedInstance))
-            .Any(instance =>
-                instance.Port == newSettings.Port
-                || instance.Port == newSettings.QueryPort
-                || instance.QueryPort == newSettings.Port
-                || instance.QueryPort == newSettings.QueryPort);
+            .Any(instance => GetPorts(instance).Any(newPorts.Contains));
+    }
+
+    private static IEnumerable<int> GetPorts(MapSettings settings)
+    {
+        yield return settings.Port;
+        yield return settings.QueryPort;
+        if (settings.RconEnabled)
+        {
+            yield return settings.RconPort;
+        }
+    }
+
+    private static IEnumerable<int> GetPorts(ServerMapInstance instance)
+    {
+        yield return instance.Port;
+        yield return instance.QueryPort;
+        if (instance.RconEnabled)
+        {
+            yield return instance.RconPort;
+        }
     }
 
     private bool ValidateSimpleToken(string value, string fieldName)
@@ -1733,6 +1914,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             AltSaveDirectoryName = $"{token}Save",
             Port = 7777 + (mapCount * 10),
             QueryPort = 27015 + mapCount,
+            RconPort = 27020 + mapCount,
             MaxPlayers = 70,
             AccentColor = preset.AccentColor,
             InitialsForeground = "#F4FFFB"
@@ -2034,6 +2216,12 @@ public sealed class ServerMapInstance : INotifyPropertyChanged
 
     public int QueryPort { get; private set; }
 
+    public bool RconEnabled { get; private set; }
+
+    public int RconPort { get; private set; }
+
+    public string AdminPassword { get; private set; } = string.Empty;
+
     public int MaxPlayers { get; private set; }
 
     public string AccentColor { get; private set; } = "#2F6F63";
@@ -2076,7 +2264,9 @@ public sealed class ServerMapInstance : INotifyPropertyChanged
         }
     }
 
-    public string Ports => $"{Port} / {QueryPort}";
+    public string Ports => RconEnabled
+        ? $"{Port} / {QueryPort} / RCON {RconPort}"
+        : $"{Port} / {QueryPort}";
 
     public string RuntimeDetails => ProcessId > 0
         ? $"{SessionName} - PID {ProcessId}{BuildQueryDetail()}"
@@ -2161,6 +2351,9 @@ public sealed class ServerMapInstance : INotifyPropertyChanged
             AltSaveDirectoryName = AltSaveDirectoryName,
             Port = Port,
             QueryPort = QueryPort,
+            RconEnabled = RconEnabled,
+            RconPort = RconPort,
+            AdminPassword = AdminPassword,
             MaxPlayers = MaxPlayers,
             AccentColor = AccentColor,
             InitialsForeground = InitialsForegroundColor
@@ -2175,6 +2368,9 @@ public sealed class ServerMapInstance : INotifyPropertyChanged
         AltSaveDirectoryName = settings.AltSaveDirectoryName.Trim();
         Port = settings.Port;
         QueryPort = settings.QueryPort;
+        RconEnabled = settings.RconEnabled;
+        RconPort = settings.RconPort;
+        AdminPassword = settings.AdminPassword?.Trim() ?? string.Empty;
         MaxPlayers = settings.MaxPlayers;
         AccentColor = settings.AccentColor;
         InitialsForegroundColor = settings.InitialsForeground;
@@ -2322,6 +2518,9 @@ public sealed class ServerMapInstance : INotifyPropertyChanged
         OnPropertyChanged(nameof(AltSaveDirectoryName));
         OnPropertyChanged(nameof(Port));
         OnPropertyChanged(nameof(QueryPort));
+        OnPropertyChanged(nameof(RconEnabled));
+        OnPropertyChanged(nameof(RconPort));
+        OnPropertyChanged(nameof(AdminPassword));
         OnPropertyChanged(nameof(MaxPlayers));
         OnPropertyChanged(nameof(AccentColor));
         OnPropertyChanged(nameof(AccentBrush));

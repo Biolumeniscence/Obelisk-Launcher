@@ -45,6 +45,7 @@ public sealed class ClusterSettings
                 AltSaveDirectoryName = "Save1",
                 Port = 7777,
                 QueryPort = 27015,
+                RconPort = 27020,
                 MaxPlayers = 70,
                 AccentColor = "#2F6F63",
                 InitialsForeground = "#F4FFFB"
@@ -66,6 +67,12 @@ public sealed class MapSettings
     public int Port { get; set; } = 7777;
 
     public int QueryPort { get; set; } = 27015;
+
+    public bool RconEnabled { get; set; }
+
+    public int RconPort { get; set; } = 27020;
+
+    public string AdminPassword { get; set; } = string.Empty;
 
     public int MaxPlayers { get; set; } = 70;
 
@@ -207,6 +214,13 @@ public sealed class LauncherSettingsStore
         {
             map.QueryPort = 27015;
         }
+
+        if (map.RconPort <= 0)
+        {
+            map.RconPort = 27020;
+        }
+
+        map.AdminPassword ??= string.Empty;
 
         if (map.MaxPlayers <= 0)
         {

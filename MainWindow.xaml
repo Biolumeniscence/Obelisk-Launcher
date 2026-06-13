@@ -131,6 +131,17 @@
             <Setter Property="SelectionBrush" Value="#3A8C7F"/>
         </Style>
 
+        <Style x:Key="SettingsPasswordBox" TargetType="{x:Type PasswordBox}">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Background" Value="#111318"/>
+            <Setter Property="BorderBrush" Value="#3A3E48"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
+            <Setter Property="SelectionBrush" Value="#3A8C7F"/>
+        </Style>
+
         <Style x:Key="SettingsCheckBox" TargetType="{x:Type CheckBox}">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
             <Setter Property="FontSize" Value="13"/>
@@ -461,9 +472,9 @@
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="72"/>
                                                             <ColumnDefinition Width="2.4*"/>
-                                                            <ColumnDefinition Width="150"/>
-                                                            <ColumnDefinition Width="150"/>
-                                                            <ColumnDefinition Width="420"/>
+                                                            <ColumnDefinition Width="130"/>
+                                                            <ColumnDefinition Width="190"/>
+                                                            <ColumnDefinition Width="430"/>
                                                         </Grid.ColumnDefinitions>
 
                                                         <Border Width="58"
@@ -493,11 +504,11 @@
 
                                                         <StackPanel Grid.Column="3" VerticalAlignment="Center">
                                                             <TextBlock Text="Порты" Foreground="{StaticResource DimTextBrush}" FontSize="11"/>
-                                                            <TextBlock Text="{Binding Ports}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,4,0,0"/>
+                                                            <TextBlock Text="{Binding Ports}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
                                                         </StackPanel>
 
                                                         <WrapPanel Grid.Column="4"
-                                                                   Width="420"
+                                                                   Width="430"
                                                                    HorizontalAlignment="Right"
                                                                    VerticalAlignment="Center">
                                                             <Button Content="{Binding PrimaryActionText}"
@@ -521,6 +532,10 @@
                                                                     Style="{StaticResource InstanceActionButton}"
                                                                     Tag="{Binding}"
                                                                     Click="ShowCommand_Click"/>
+                                                            <Button Content="RCON"
+                                                                    Style="{StaticResource InstanceActionButton}"
+                                                                    Tag="{Binding}"
+                                                                    Click="OpenRcon_Click"/>
                                                             <Button Content="Удалить"
                                                                     Style="{StaticResource StopButton}"
                                                                     Tag="{Binding}"
@@ -709,6 +724,29 @@
                         </StackPanel>
                     </Grid>
 
+                    <Border BorderBrush="{StaticResource LineBrush}"
+                            BorderThickness="0,1,0,0"
+                            Margin="0,0,0,16"/>
+
+                    <CheckBox x:Name="MapRconEnabledCheckBox"
+                              Content="Включить RCON для этой карты"
+                              Style="{StaticResource SettingsCheckBox}"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,10,0">
+                            <TextBlock Text="RCONPort" Foreground="{StaticResource DimTextBrush}" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <TextBox x:Name="MapRconPortTextBox" Style="{StaticResource SettingsTextBox}" Margin="0,0,0,18"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                            <TextBlock Text="ServerAdminPassword" Foreground="{StaticResource DimTextBrush}" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <PasswordBox x:Name="MapAdminPasswordBox" Style="{StaticResource SettingsPasswordBox}" Margin="0,0,0,18"/>
+                        </StackPanel>
+                    </Grid>
+
                     <StackPanel Orientation="Horizontal"
                                 HorizontalAlignment="Right">
                         <Button Content="Отмена"
@@ -717,6 +755,77 @@
                         <Button Content="Сохранить"
                                 Style="{StaticResource StartButton}"
                                 Click="SaveMapSettings_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid x:Name="RconCommandOverlay"
+              Grid.RowSpan="2"
+              Visibility="Collapsed"
+              Background="#CC090A0D">
+            <Border Width="660"
+                    Background="#17191E"
+                    BorderBrush="#3A404A"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="24"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock x:Name="RconMapTitleTextBlock"
+                               Text="RCON"
+                               Foreground="{StaticResource TextBrush}"
+                               FontSize="24"
+                               FontWeight="Bold"/>
+                    <TextBlock x:Name="RconEndpointTextBlock"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               FontSize="13"
+                               Margin="0,8,0,18"/>
+
+                    <WrapPanel Margin="0,0,0,14">
+                        <Button Content="SaveWorld"
+                                Style="{StaticResource InstanceActionButton}"
+                                Click="RconSaveWorld_Click"/>
+                        <Button Content="ListPlayers"
+                                Style="{StaticResource InstanceActionButton}"
+                                Click="RconListPlayers_Click"/>
+                        <Button Content="Broadcast"
+                                Style="{StaticResource InstanceActionButton}"
+                                Click="RconBroadcast_Click"/>
+                    </WrapPanel>
+
+                    <TextBlock Text="Команда"
+                               Foreground="{StaticResource DimTextBrush}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,6"/>
+                    <TextBox x:Name="RconCommandTextBox"
+                             Style="{StaticResource SettingsTextBox}"
+                             Margin="0,0,0,14"/>
+
+                    <TextBlock Text="Ответ сервера"
+                               Foreground="{StaticResource DimTextBrush}"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,6"/>
+                    <TextBox x:Name="RconOutputTextBox"
+                             Style="{StaticResource SettingsTextBox}"
+                             Height="180"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             Margin="0,0,0,18"/>
+
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right">
+                        <Button Content="Закрыть"
+                                Style="{StaticResource InstanceActionButton}"
+                                Click="CancelRcon_Click"/>
+                        <Button Content="Отправить"
+                                Style="{StaticResource StartButton}"
+                                Click="SendRconCommand_Click"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
